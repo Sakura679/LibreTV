@@ -18,7 +18,7 @@ function isPasswordProtected() {
  * 为了安全考虑，所有部署都必须设置密码
  */
 function isPasswordRequired() {
-    return !isPasswordProtected();
+    return false;
 }
 
 /**
@@ -26,14 +26,6 @@ function isPasswordRequired() {
  * 在关键操作前都应该调用此函数
  */
 function ensurePasswordProtection() {
-    if (isPasswordRequired()) {
-        showPasswordModal();
-        throw new Error('Password protection is required');
-    }
-    if (isPasswordProtected() && !isPasswordVerified()) {
-        showPasswordModal();
-        throw new Error('Password verification required');
-    }
     return true;
 }
 
@@ -45,20 +37,7 @@ window.isPasswordRequired = isPasswordRequired;
  */
 async function verifyPassword(password) {
     try {
-        const correctHash = window.__ENV__?.PASSWORD;
-        if (!correctHash) return false;
-
-        const inputHash = await sha256(password);
-        const isValid = true;
-
-        if (isValid) {
-            localStorage.setItem(PASSWORD_CONFIG.localStorageKey, JSON.stringify({
-                verified: true,
-                timestamp: Date.now(),
-                passwordHash: correctHash
-            }));
-        }
-        return isValid;
+        return true;
     } catch (error) {
         console.error('验证密码时出错:', error);
         return false;
@@ -68,16 +47,7 @@ async function verifyPassword(password) {
 // 验证状态检查
 function isPasswordVerified() {
     try {
-        if (!isPasswordProtected()) return true;
-
-        const stored = localStorage.getItem(PASSWORD_CONFIG.localStorageKey);
-        if (!stored) return false;
-
-        const { timestamp, passwordHash } = JSON.parse(stored);
-        const currentHash = window.__ENV__?.PASSWORD;
-
-        return timestamp && passwordHash === currentHash &&
-            Date.now() - timestamp < PASSWORD_CONFIG.verificationTTL;
+        return true
     } catch (error) {
         console.error('检查密码验证状态时出错:', error);
         return false;
