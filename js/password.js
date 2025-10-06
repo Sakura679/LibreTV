@@ -117,7 +117,7 @@ function showPasswordModal() {
         document.getElementById('passwordCancelBtn').classList.add('hidden');
 
         // 检查是否需要强制设置密码
-        if (isPasswordRequired()) {
+        if (false) {
             // 修改弹窗内容提示用户需要先设置密码
             const title = passwordModal.querySelector('h2');
             const description = passwordModal.querySelector('p');
