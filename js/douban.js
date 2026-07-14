@@ -274,6 +274,7 @@ function renderDoubanMovieTvSwitch() {
             
             doubanMovieTvCurrentSwitch = 'movie';
             doubanCurrentTag = '热门';
+            doubanPageStart = 0;
 
             // 重新加载豆瓣内容
             renderDoubanTags(movieTags);
@@ -300,6 +301,7 @@ function renderDoubanMovieTvSwitch() {
             
             doubanMovieTvCurrentSwitch = 'tv';
             doubanCurrentTag = '热门';
+            doubanPageStart = 0;
 
             // 重新加载豆瓣内容
             renderDoubanTags(tvTags);
@@ -373,10 +375,6 @@ function setupDoubanRefreshBtn() {
     
     btn.onclick = function() {
         doubanPageStart += doubanPageSize;
-        if (doubanPageStart > 9 * doubanPageSize) {
-            doubanPageStart = 0;
-        }
-        
         renderRecommend(doubanCurrentTag, doubanPageSize, doubanPageStart);
     };
 }
@@ -427,7 +425,13 @@ function renderRecommend(tag, pageLimit, pageStart) {
     
     // 使用通用请求函数
     fetchDoubanData(target)
-        .then(data => {
+        .then(async data => {
+            // 每个标签的实际页数不同；命中末页时循环到第一页，而不是使用固定页数。
+            if (pageStart > 0 && (!data.subjects || data.subjects.length === 0)) {
+                doubanPageStart = 0;
+                const firstPageTarget = `https://movie.douban.com/j/search_subjects?type=${doubanMovieTvCurrentSwitch}&tag=${tag}&sort=recommend&page_limit=${pageLimit}&page_start=0`;
+                data = await fetchDoubanData(firstPageTarget);
+            }
             renderDoubanCards(data, container);
         })
         .catch(error => {
@@ -528,20 +532,16 @@ function renderDoubanCards(data, container) {
                 .replace(/</g, '&lt;')
                 .replace(/>/g, '&gt;');
             
-            // 处理图片URL
-            // 1. 直接使用豆瓣图片URL (添加no-referrer属性)
+            // 豆瓣 CDN 会拒绝部分跨站图片请求，因此通过本站代理加载海报。
             const originalCoverUrl = item.cover;
-            
-            // 2. 也准备代理URL作为备选
-            const proxiedCoverUrl = PROXY_URL + encodeURIComponent(originalCoverUrl);
             
             // 为不同设备优化卡片布局
             card.innerHTML = `
                 <div class="relative w-full aspect-[2/3] overflow-hidden cursor-pointer" onclick="fillAndSearchWithDouban('${safeTitle}')">
-                    <img src="${originalCoverUrl}" alt="${safeTitle}" 
+                    <img src="${createDoubanCoverPlaceholder(safeTitle)}" alt="${safeTitle}"
                         class="w-full h-full object-cover transition-transform duration-500 hover:scale-110"
-                        onerror="this.onerror=null; this.src='${proxiedCoverUrl}'; this.classList.add('object-contain');"
-                        loading="lazy" referrerpolicy="no-referrer">
+                        data-douban-cover="${encodeURIComponent(originalCoverUrl || '')}"
+                        loading="lazy">
                     <div class="absolute inset-0 bg-gradient-to-t from-black to-transparent opacity-60"></div>
                     <div class="absolute bottom-2 left-2 bg-black/70 text-white text-xs px-2 py-1 rounded-sm">
                         <span class="text-yellow-400">★</span> ${safeRate}
@@ -568,6 +568,38 @@ function renderDoubanCards(data, container) {
     // 清空并添加所有新元素
     container.innerHTML = "";
     container.appendChild(fragment);
+    hydrateDoubanCoverUrls(container);
+}
+
+function createDoubanCoverPlaceholder(title) {
+    const label = String(title || 'LibreTV').replace(/[<>&"']/g, '').slice(0, 18);
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="300" height="450" viewBox="0 0 300 450"><rect width="100%" height="100%" fill="#1a1a1a"/><text x="150" y="225" fill="#9ca3af" font-size="24" text-anchor="middle" dominant-baseline="middle">${label}</text></svg>`;
+    return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
+}
+
+async function getDoubanProxiedUrl(url) {
+    const proxyUrl = PROXY_URL + encodeURIComponent(url);
+    return window.ProxyAuth?.addAuthToProxyUrl
+        ? window.ProxyAuth.addAuthToProxyUrl(proxyUrl)
+        : proxyUrl;
+}
+
+function hydrateDoubanCoverUrls(container) {
+    container.querySelectorAll('img[data-douban-cover]').forEach(async image => {
+        const coverUrl = decodeURIComponent(image.dataset.doubanCover || '');
+        if (!coverUrl) return;
+
+        try {
+            image.src = await getDoubanProxiedUrl(coverUrl);
+            image.onerror = () => {
+                image.onerror = null;
+                image.classList.add('object-contain');
+                image.src = createDoubanCoverPlaceholder(image.alt);
+            };
+        } catch (error) {
+            console.warn('生成豆瓣海报代理地址失败：', error);
+        }
+    });
 }
 
 // 重置到首页

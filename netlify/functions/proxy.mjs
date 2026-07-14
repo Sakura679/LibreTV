@@ -124,11 +124,13 @@ function validateAuth(event) {
 }
 
 async function fetchContentWithType(targetUrl, requestHeaders) {
+    const targetHost = new URL(targetUrl).hostname;
+    const isDoubanImage = targetHost.endsWith('.doubanio.com');
     const headers = {
         'User-Agent': getRandomUserAgent(),
         'Accept': requestHeaders['accept'] || '*/*',
         'Accept-Language': requestHeaders['accept-language'] || 'zh-CN,zh;q=0.9,en;q=0.8',
-        'Referer': requestHeaders['referer'] || new URL(targetUrl).origin,
+        'Referer': isDoubanImage ? 'https://movie.douban.com/' : (requestHeaders['referer'] || new URL(targetUrl).origin),
     };
     Object.keys(headers).forEach(key => headers[key] === undefined || headers[key] === null || headers[key] === '' ? delete headers[key] : {});
     logDebug(`Fetching target: ${targetUrl} with headers: ${JSON.stringify(headers)}`);
@@ -140,10 +142,11 @@ async function fetchContentWithType(targetUrl, requestHeaders) {
             const err = new Error(`HTTP error ${response.status}: ${response.statusText}. URL: ${targetUrl}. Body: ${errorBody.substring(0, 200)}`);
             err.status = response.status; throw err;
         }
-        const content = await response.text();
         const contentType = response.headers.get('content-type') || '';
+        const isBinary = contentType.startsWith('image/');
+        const content = isBinary ? Buffer.from(await response.arrayBuffer()).toString('base64') : await response.text();
         logDebug(`Fetch success: ${targetUrl}, Content-Type: ${contentType}, Length: ${content.length}`);
-        return { content, contentType, responseHeaders: response.headers };
+        return { content, contentType, responseHeaders: response.headers, isBinary };
     } catch (error) {
         logDebug(`Fetch exception for ${targetUrl}: ${error.message}`);
         throw new Error(`Failed to fetch target URL ${targetUrl}: ${error.message}`);
@@ -271,7 +274,7 @@ export const handler = async (event, context) => {
         }
 
         // Fetch Original Content (Pass Netlify event headers)
-        const { content, contentType, responseHeaders } = await fetchContentWithType(targetUrl, event.headers);
+        const { content, contentType, responseHeaders, isBinary } = await fetchContentWithType(targetUrl, event.headers);
 
         // --- Process if M3U8 ---
         if (isM3u8Content(content, contentType)) {
@@ -310,8 +313,8 @@ export const handler = async (event, context) => {
             return {
                 statusCode: 200,
                 headers: netlifyHeaders,
-                body: content, // Body as string
-                // isBase64Encoded: false, // Set true only if returning binary data as base64
+                body: content,
+                isBase64Encoded: isBinary,
             };
         }
 
